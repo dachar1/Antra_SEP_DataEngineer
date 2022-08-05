@@ -1,16 +1,20 @@
--- 12.	List all the Order Detail (Stock Item name, delivery address, 
--- delivery state, city, country, customer name, 
--- customer contact person name, customer phone, quantity) 
--- for the date of 2014-07-01. Info should be relevant to that date.
-
-SELECT Warehouse.StockItems.StockItemName,Sales.Orders.OrderDate,Sales.Customers.DeliveryAddressLine1,Sales.Customers.DeliveryAddressLine2
+SELECT
+	ws.StockItemName, si.DeliveryInstructions, ac.CityName, asp.StateProvinceName, act.CountryName, 
+    sc.CustomerName, ap.FullName, sc.PhoneNumber, sol.Quantity
 FROM
-Warehouse.StockItems
-LEFT JOIN
-Sales.Orders
-ON Warehouse.StockItems.SupplierID = Sales.Orders.SalespersonPersonID
-INNER JOIN
-Sales.Customers
-ON Sales.Orders.SalespersonPersonID = Sales.Customers.CustomerID
+	Sales.Orders AS so, Sales.OrderLines AS sol,
+	Sales.Invoices AS si, Sales.Customers AS sc,
+	Warehouse.StockItems AS ws, Application.People AS ap,
+	Application.Cities AS ac, Application.StateProvinces AS asp,
+	Application.Countries As act
+
 WHERE
-Orders.OrderDate = '2014-07-01'
+	so.OrderID = sol.OrderID
+	AND si.OrderID = so.OrderID
+	AND sol.StockItemID = ws.StockItemID
+	AND so.CustomerID = sc.CustomerID
+	AND so.ContactPersonID = ap.PersonID
+	AND sc.DeliveryCityID = ac.CityID
+	AND ac.StateProvinceID = asp.StateProvinceID
+	AND asp.CountryID = act.CountryID
+	AND so.OrderDate = '2014-07-01';
