@@ -11,11 +11,14 @@ display(dbutils.fs.ls(bronzePath))
 
 # COMMAND ----------
 
-display(dbutils.fs.ls("dbfs:/dbfs/FileStore/movie/bronze/p_ingestdate=2022-08-25"))
+
+movies_bronze = spark.read.load(path = bronzePath)
+display(movies_bronze)
 
 # COMMAND ----------
 
-rawDF = read_batch_raw(rawPath)
+movies_silver = movie_bronze_to_silver(movies_bronze).distinct()
+display(movies_silver)
 
 # COMMAND ----------
 
@@ -23,16 +26,33 @@ transformedRawDF = transform_raw(rawDF)
 
 # COMMAND ----------
 
-from pyspark.sql.types import *
+from pyspark.sql.types import _parse_datatype_string
 
-assert transformedRawDF.schema == StructType(
-    [
-        StructField("datasource", StringType(), False),
-        StructField("ingesttime", TimestampType(), False),
-        StructField("status", StringType(), False),
-        StructField("value", StringType(), True),
-        StructField("p_ingestdate", DateType(), False),
-    ]
+assert transformedRawDF== _parse_datatype_string(
+    """
+    movie string,
+    BackdropUrl string,
+    Budget double,
+    CreatedBy timestamp,
+    CreatedDate string,
+    Id long,
+    ImdbUrl string,
+    Overview string,
+    PosterUrl string,
+    Price double,
+    ReleaseTime timestamp,
+    ReleaseDate date,
+    ReleaseYear date,
+    Revenue double,
+    RunTime long,
+    Tagline string,
+    Title string,
+    TmdbUrl string,
+    UpdatedBy timestamp,
+    UpdatedDate timestamp,
+    movie_genre_junction_id long,
+    Language_Id long
+    """
 )
 print("Assertion passed.")
 
@@ -47,9 +67,11 @@ bronzeDF = spark.read.table("movie_bronze").filter("status = 'new'")
 
 # COMMAND ----------
 
+from pyspark.sql.types import _parse_datatype_string
 from pyspark.sql.functions import from_json
 
-json_schema = """
+assert json_schema ="""
+    movie STRING
     BackdropUrl STRING
     Budget FLOAT,
     CreatedBy STRING,
@@ -73,9 +95,13 @@ json_schema = """
     id LONG,
     name STRING
 """
-
+                                   
 bronzeAugmentedDF = bronzeDF.withColumn("nested_json", from_json(col("col"), json_schema)
 )
+
+# COMMAND ----------
+
+movie_silver = bronzeAugmentedDF.select("col", "nested_json.*")
 
 # COMMAND ----------
 

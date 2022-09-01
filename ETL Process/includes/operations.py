@@ -1,175 +1,179 @@
 # Databricks notebook source
-from delta.tables import DeltaTable
+from pyspark.sql.functions import to_json, from_json, col, trunc, monotonically_increasing_id, lit
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import (
-    col,
-    current_timestamp,
-    from_json,
-    from_unixtime,
-    lag,
-    lead,
-    lit,
-    mean,
-    stddev,
-    max,
-)
-from typing import List
-from pyspark.sql.session import SparkSession
-from pyspark.sql.window import Window
 
 # COMMAND ----------
 
-def batch_writer(
-    dataframe: DataFrame,
-    partition_column: str,
-    exclude_columns: List = [],
-    mode: str = "append",
-) -> DataFrame:
-    return (
-        dataframe.drop(
-            *exclude_columns
-        )  # This uses Python argument unpacking (https://docs.python.org/3/tutorial/controlflow.html#unpacking-argument-lists)
-        .write.format("delta")
-        .mode(mode)
-        .partitionBy(partition_column)
-    )
-
-
-# COMMAND ----------
-
-
-
-# COMMAND ----------
-
-# ANSWER
-def read_batch_bronze(spark: SparkSession) -> DataFrame:
-    return spark.read.table("movie_bronze").filter("status = 'new'")
-
-
-# COMMAND ----------
-
-def read_batch_delta(deltaPath: str) -> DataFrame:
-    return spark.read.format("delta").load(deltaPath)
-
-
-# COMMAND ----------
-
-def read_batch_raw(rawPath: str) -> DataFrame:
-    kafka_schema = "value STRING"
-    return spark.read.format("text").schema(kafka_schema).load(rawPath)
-
-
-# COMMAND ----------
-
-def transform_bronze(bronze: DataFrame, quarantine: bool = False) -> DataFrame:
-
+def get_language_table(bronze:DataFrame) -> DataFrame:
     json_schema = """
-    BackdropUrl STRING,
-    Budget FLOAT,
-    CreatedBy STRING,
-    CreatedDate TIMESTAMP,
-    Id LONG,
-    ImdbUrl STRING,
-    OriginalLanguage STRING,
-    Overview STRING,
-    PosterUrl STRING,
-    Price FLOAT,
-    ReleaseDate TIMESTAMP,
-    Revenue FLOAT,
-    RunTime INTEGER,
-    Tagline STRING,
-    Title STRING,
-    TmdbUrl STRING,
-    UpdatedBy STRING,
-    UpdatedDate TIMESTAMP,
-    genre
-    id LONG
-    name STRING
-  """
+       BackdropUrl STRING,
+       Budget DOUBLE,
+       CreatedBy TIMESTAMP,
+       CreatedDate STRING,
+       Id LONG,
+       ImdbUrl STRING,
+       OriginalLanguage STRING,
+       Overview STRING,
+       PosterUrl STRING,
+       Price DOUBLE,
+       ReleaseDate TIMESTAMP,
+       Revenue DOUBLE,
+       RunTime LONG,
+       Tagline STRING,
+       Title STRING,
+       TmdbUrl STRING,
+       UpdatedBy TIMESTAMP,
+       UpdatedDate TIMESTAMP,
+       genres STRING
+    """
 
-    bronzeAugmentedDF = bronze.withColumn(
-        "nested_json", from_json(col("col"), json_schema)
-    )
-
-    silver_movie = bronzeAugmentedDF.select("value", "nested_json.*")
-
-    if not quarantine:
-        silver_movie = silver_movie.select(
-            "value",
-            col("device_id").cast("integer").alias("device_id"),
-            "steps",
-            col("time").alias("eventtime"),
-            "name",
-            col("time").cast("date").alias("p_eventdate"),
-        )
-    else:
-        silver_health_tracker = silver_health_tracker.select(
-            "value",
-            "device_id",
-            "steps",
-            col("time").alias("eventtime"),
-            "name",
-            col("time").cast("date").alias("p_eventdate"),
-        )
-
-    return silver_health_tracker
-
-
-# COMMAND ----------
-
-def repair_quarantined_records(
-    spark: SparkSession, bronzeTable: str, userTable: str
-) -> DataFrame:
-    bronzeQuarantinedDF = spark.read.table(bronzeTable).filter("status = 'quarantined'")
-    bronzeQuarTransDF = transform_bronze(bronzeQuarantinedDF, quarantine=True).alias(
-        "quarantine"
-    )
-    health_tracker_user_df = spark.read.table(userTable).alias("user")
-    repairDF = bronzeQuarTransDF.join(
-        health_tracker_user_df,
-        bronzeQuarTransDF.device_id == health_tracker_user_df.user_id,
-    )
-    silverCleanedDF = repairDF.select(
-        col("quarantine.value").alias("value"),
-        col("user.device_id").cast("INTEGER").alias("device_id"),
-        col("quarantine.steps").alias("steps"),
-        col("quarantine.eventtime").alias("eventtime"),
-        col("quarantine.name").alias("name"),
-        col("quarantine.eventtime").cast("date").alias("p_eventdate"),
-    )
-    return silverCleanedDF
-
-
-# COMMAND ----------
-
-def transform_raw(raw: DataFrame) -> DataFrame:
-    return raw.select(
-        lit("files.training.databricks.com").alias("datasource"),
-        current_timestamp().alias("ingesttime"),
-        lit("new").alias("status"),
-        "value",
-        current_timestamp().cast("date").alias("p_ingestdate"),
+    return(bronze.withColumn(
+        "nested_json", from_json(col("col"),
+                                 json_schema))
+          .select("col",
+                  "nested_json.*")
+          .select("OriginalLanguage").distinct()
+          .withColumn("Language_Id", monotonically_increasing_id()+1)
+          .select("Language_Id", "OriginalLanguage")
     )
 
 
 # COMMAND ----------
 
-def update_bronze_table_status(
-    spark: SparkSession, bronzeTablePath: str, dataframe: DataFrame, status: str
-) -> bool:
+def movie_bronze_to_silver(bronze: DataFrame) -> DataFrame:
+    
+    # First of all, create a schema
+    json_schema = """
+       BackdropUrl STRING,
+       Budget DOUBLE,
+       CreatedBy TIMESTAMP,
+       CreatedDate STRING,
+       Id LONG,
+       ImdbUrl STRING,
+       OriginalLanguage STRING,
+       Overview STRING,
+       PosterUrl STRING,
+       Price DOUBLE,
+       ReleaseDate TIMESTAMP,
+       Revenue DOUBLE,
+       RunTime LONG,
+       Tagline STRING,
+       Title STRING,
+       TmdbUrl STRING,
+       UpdatedBy TIMESTAMP,
+       UpdatedDate TIMESTAMP,
+       genres STRING
+    """
+    
+    return(bronze.withColumn(
+        "nested_json", from_json(col("col"),
+                                 json_schema))
+          .select("col", "nested_json.*")
+          .select("col",
+                  "BackdropUrl",
+                  "Budget",
+                  "CreatedBy",
+                  "CreatedDate",
+                  "Id",
+                  "ImdbUrl",
+                  "OriginalLanguage",
+                  "Overview",
+                  "PosterUrl",
+                  "Price",
+                  col("ReleaseDate").alias("ReleaseTime"),
+                  col("ReleaseDate").cast("date"),
+                  trunc(col("ReleaseDate").cast("date"), "year").alias("ReleaseYear"),
+                  "Revenue",
+                  "RunTime",
+                  "Tagline",
+                  "Title",
+                  "TmdbUrl",
+                  "UpdatedBy",
+                  "UpdatedDate",
+                  "genres")
+          )
 
-    bronzeTable = DeltaTable.forPath(spark, bronzePath)
-    dataframeAugmented = dataframe.withColumn("status", lit(status))
+# COMMAND ----------
 
-    update_match = "bronze.value = dataframe.value"
-    update = {"status": "dataframe.status"}
+from pyspark.sql.functions import translate, split, explode
 
-    (
-        bronzeTable.alias("bronze")
-        .merge(dataframeAugmented.alias("dataframe"), update_match)
-        .whenMatchedUpdate(set=update)
-        .execute()
+def get_genres_pairs(bronze:DataFrame) -> DataFrame:
+    json_schema = """
+       BackdropUrl STRING,
+       Budget DOUBLE,
+       CreatedBy TIMESTAMP,
+       CreatedDate STRING,
+       Id LONG,
+       ImdbUrl STRING,
+       OriginalLanguage STRING,
+       Overview STRING,
+       PosterUrl STRING,
+       Price DOUBLE,
+       ReleaseDate TIMESTAMP,
+       Revenue DOUBLE,
+       RunTime LONG,
+       Tagline STRING,
+       Title STRING,
+       TmdbUrl STRING,
+       UpdatedBy TIMESTAMP,
+       UpdatedDate TIMESTAMP,
+       genres STRING
+    """
+    
+    
+    
+    return(bronze.withColumn(
+        "nested_json", from_json(col("col"),
+                                 json_schema))
+          .select("col",
+                  "nested_json.*")
+          .select("genres")
     )
 
-    return True
+# COMMAND ----------
 
+def get_genres_table(g1: DataFrame) -> DataFrame:
+    g1 = get_genres_pairs(movies_bronze).withColumn("genres",translate("genres","[]","")).select(split(col("genres"), "},")
+                                        .alias("genresArray")).drop("genres").select("genresArray", explode("genresArray")).drop("genresArray").withColumn("col",translate("col","{\"}","")).distinct().select(split(col("col"), ","))
+    genres_id = []
+    name = []
+    for i in range(g1.count()):
+        pair = g1.collect()[i][0]
+        genres_id.append(pair[0][3:])
+        name.append(pair[1][5:])
+    genres_silver = spark.createDataFrame(zip(genres_id, name), ["genres_Id", "name"])
+    genres_silver = genres_silver.withColumn("genres_Id", col("genres_Id").cast("integer")).sort("genres_Id")
+    
+    return(genres_silver)
+
+# COMMAND ----------
+
+from pyspark.sql.types import ArrayType, StructType, StructField, IntegerType, StringType, DoubleType
+from pyspark.sql.functions import col, udf, explode, regexp_replace
+
+zip_ = udf(lambda x, y: list(zip(x, i) for i in y),
+           ArrayType(StructType([
+               StructField("first", IntegerType()),
+               StructField("second", StringType())
+           ]))
+          )
+
+# COMMAND ----------
+
+def get_movie_genre_junction_table(movies_silver: DataFrame) -> DataFrame:
+    test_ms = movies_silver
+    #test_ms = test_ms.withColumn("movie_genre_junction_id", monotonically_increasing_id()+1)
+
+    mgj_1 = test_ms.select("movie_genre_junction_id", "genres", split(col("genres"), "},")).withColumn("genre", col("split(genres, },, -1)")).drop("genres", "split(genres, },, -1)")
+    mgj_2 = mgj_1.select("movie_genre_junction_id", "genre").withColumn("genre", explode("genre")).withColumn("genreId", regexp_replace("genre","\\D", "")).drop("genre")
+    
+    return(mgj_2)
+
+# COMMAND ----------
+
+def set_df_columns_nullable(spark, df, column_list, nullable=True):
+    for struct_field in df.schema:
+        if struct_field.name in column_list:
+            struct_field.nullable = nullable
+    df_mod = spark.createDataFrame(df.rdd, df.schema)
+    return df_mod
