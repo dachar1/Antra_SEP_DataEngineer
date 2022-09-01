@@ -39,10 +39,6 @@ movie_raw.select("datasource", "ingesttime", "movie", "status", col("ingestdate"
 
 # COMMAND ----------
 
-movie_raw.printSchema()
-
-# COMMAND ----------
-
 display(dbutils.fs.ls(bronzePath))
 
 # COMMAND ----------
