@@ -28,9 +28,9 @@ def get_language_table(bronze:DataFrame) -> DataFrame:
     """
 
     return(bronze.withColumn(
-        "nested_json", from_json(col("col"),
+        "nested_json", from_json(col("movie"),
                                  json_schema))
-          .select("col",
+          .select("movie",
                   "nested_json.*")
           .select("OriginalLanguage").distinct()
           .withColumn("Language_Id", monotonically_increasing_id()+1)
@@ -41,8 +41,7 @@ def get_language_table(bronze:DataFrame) -> DataFrame:
 # COMMAND ----------
 
 def movie_bronze_to_silver(bronze: DataFrame) -> DataFrame:
-    
-    # First of all, create a schema
+  
     json_schema = """
        BackdropUrl STRING,
        Budget DOUBLE,
@@ -66,10 +65,10 @@ def movie_bronze_to_silver(bronze: DataFrame) -> DataFrame:
     """
     
     return(bronze.withColumn(
-        "nested_json", from_json(col("col"),
+        "nested_json", from_json(col("movie"),
                                  json_schema))
-          .select("col", "nested_json.*")
-          .select("col",
+          .select("movie", "nested_json.*")
+          .select("movie",
                   "BackdropUrl",
                   "Budget",
                   "CreatedBy",
@@ -123,9 +122,9 @@ def get_genres_pairs(bronze:DataFrame) -> DataFrame:
     
     
     return(bronze.withColumn(
-        "nested_json", from_json(col("col"),
+        "nested_json", from_json(col("movie"),
                                  json_schema))
-          .select("col",
+          .select("movie",
                   "nested_json.*")
           .select("genres")
     )
